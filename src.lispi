@@ -1,7 +1,9 @@
 (def l (list 1 2 3 4 5))
 
-(def inc (fn (x) (+ x 1)))
+(def inc (fn (x) ; test comment
+             (+ x 1)))
 
+;; One more comment
 (inc 1)
 
 
@@ -39,9 +41,10 @@
      (fn (fun coll)
          (cons (fun (first coll)) (rest coll))))
 
-(mapfirst inc l)
-(map inc l)
-(reverse l)
-(foldl + 0 l)
-(map/foldl inc l)
+(inc 10)
+;(map inc l)
+;(reverse l)
+; (foldl + 0 l)
+;(mapfirst inc l)
+;(map/foldl inc l)
 

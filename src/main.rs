@@ -66,7 +66,10 @@ impl Parser {
                 break;
             }
 
-            if src.starts_with('(') {
+            if src.starts_with(";") {
+                let end_pos = src.find('\n').unwrap_or(src.len());
+                src = &src[end_pos..];
+            } else if src.starts_with('(') {
                 self.state.push_back(Value::List(LinkedList::new()));
                 src = &src[1..];
             } else if src.starts_with(')') {
