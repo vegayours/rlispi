@@ -1,4 +1,5 @@
 use std::collections::LinkedList;
+use std::fs::File;
 use std::ops::Fn;
 use std::rc::Rc;
 use std::{collections::HashMap, io::Read};
@@ -47,17 +48,14 @@ impl Parser {
 
         let mut src = src;
 
-        let mut add_value = |value: Value, state: &mut LinkedList<Value>| {
-            println!("Add value: {:?} {:?} {:?}", &value, state, &result);
-            match state.back_mut() {
-                Some(Value::List(elements)) => {
-                    elements.push_back(value);
-                }
-                None => {
-                    result.push(value);
-                }
-                Some(_) => unreachable!(),
+        let mut add_value = |value: Value, state: &mut LinkedList<Value>| match state.back_mut() {
+            Some(Value::List(elements)) => {
+                elements.push_back(value);
             }
+            None => {
+                result.push(value);
+            }
+            Some(_) => unreachable!(),
         };
 
         loop {
@@ -145,6 +143,27 @@ impl Context {
             Some(global_value.clone())
         } else {
             None
+        }
+    }
+    fn import(ctx: &mut Context, args: LinkedList<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!("Import form expects 1 path argument"));
+        }
+        if let Some(Value::String(path)) = args.front() {
+            let mut src = String::new();
+            let _size = File::open(path)
+                .map(|mut f| f.read_to_string(&mut src))
+                .map_err(|e| format!("Can't read file {}, error: {}", path, e))?;
+            let mut file_parser = Parser::new();
+            for value in file_parser.parse_next(&src)? {
+                eval(ctx, value)?;
+            }
+            Ok(Value::Nil)
+        } else {
+            Err(format!(
+                "Expected string as argument to 'import', got: {:?}",
+                args.front()
+            ))
         }
     }
     fn new() -> Context {
@@ -373,6 +392,13 @@ impl Context {
                         Err("'fn' has form (fn (arg1 arg2 ...) body)".into())
                     }
                 }),
+            }),
+        );
+        bindings.insert(
+            "import".into(),
+            Value::Function(Function {
+                name: "import".into(),
+                fun: Rc::new(Context::import),
             }),
         );
         Context {
