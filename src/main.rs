@@ -82,6 +82,18 @@ impl Parser {
                         return Err(String::from("Unmatched closing parenthesis"));
                     }
                 }
+            } else if src.starts_with('"') {
+                // TODO: Implement escaped characters handling and multi-line strings.
+                src = &src[1..];
+                if let Some(end_pos) = src.find('"') {
+                    add_value(
+                        Value::String(String::from(&src[..end_pos])),
+                        &mut self.state,
+                    );
+                    src = &src[end_pos + 1..];
+                } else {
+                    return Err(format!("Unterminated string: {}", src));
+                }
             } else {
                 let end_pos = src
                     .find(|c: char| c.is_whitespace() || c == ')')
