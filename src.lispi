@@ -1,0 +1,47 @@
+(def l (list 1 2 3 4 5))
+
+(def inc (fn (x) (+ x 1)))
+
+(inc 1)
+
+
+(def foldl
+     (fn (fun acc coll)
+         (if (empty? coll)
+             acc
+           (foldl fun (fun acc (first coll)) (rest coll))
+           )))
+
+(def map/foldl
+     (fn (fun coll)
+         (foldl (fn (acc elem)
+                    (cons (fun elem) acc))
+                (list)
+                coll)
+         ))
+
+(def map
+     (fn (fun coll)
+         (if (empty? coll)
+             coll
+           (cons (fun (first coll)) (map fun (rest coll))))))
+
+
+(def reverse
+     (fn (coll)
+         (foldl (fn (acc elem)
+                    (cons elem acc))
+                (list)
+                coll)
+      ))
+
+(def mapfirst
+     (fn (fun coll)
+         (cons (fun (first coll)) (rest coll))))
+
+(mapfirst inc l)
+(map inc l)
+(reverse l)
+(foldl + 0 l)
+(map/foldl inc l)
+
