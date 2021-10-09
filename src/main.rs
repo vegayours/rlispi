@@ -1,5 +1,6 @@
 use std::collections::LinkedList;
 use std::fs::File;
+use std::io::Write;
 use std::ops::Fn;
 use std::rc::Rc;
 use std::{collections::HashMap, io::Read};
@@ -109,6 +110,16 @@ impl Parser {
         }
         Ok(result)
     }
+    fn finish(self) -> Result<(), String> {
+        if self.state.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "Syntax error, partially parsed state: {:?}",
+                self.state
+            ))
+        }
+    }
 }
 
 fn is_symbol(token: &str) -> bool {
@@ -158,6 +169,7 @@ impl Context {
             for value in file_parser.parse_next(&src)? {
                 eval(ctx, value)?;
             }
+            file_parser.finish()?;
             Ok(Value::Nil)
         } else {
             Err(format!(
@@ -429,11 +441,11 @@ impl Context {
 }
 
 fn eval(ctx: &mut Context, value: Value) -> Result<Value, String> {
-    println!("Eval value: {:?}. Local ctx: {:?}", value, ctx.local);
+    //println!("Eval value: {:?}. Local ctx: {:?}", value, ctx.local);
     match value {
         Value::Symbol(name) => {
             if let Some(val) = ctx.resolve(&name) {
-                println!("{} -> {:?}", name, val);
+                //println!("{} -> {:?}", name, val);
                 Ok(val)
             } else {
                 Err(format!("Can't resolve symbol '{}'", name))
@@ -454,19 +466,23 @@ fn eval(ctx: &mut Context, value: Value) -> Result<Value, String> {
 }
 
 fn main() {
-    let mut src = String::new();
-    std::io::stdin().read_to_string(&mut src).unwrap();
-    println!("Src: {}", src.trim_end());
-
     let mut parser = Parser::new();
-
-    let values: Vec<Value> = parser.parse_next(&src).unwrap();
-
     let mut context = Context::new();
 
-    for elem in values {
-        println!("Eval {:?}", elem);
-        let result = eval(&mut context, elem).unwrap();
-        println!("Result {:?}", result);
+    let mut src = String::new();
+    loop {
+        //print!("(lispi)=> ");
+        std::io::stdout().flush().unwrap();
+        if std::io::stdin().read_line(&mut src).unwrap() == 0 {
+            parser.finish().unwrap();
+            break;
+        } else {
+            for elem in parser.parse_next(&src).unwrap() {
+                println!("Eval {:?}", elem);
+                let result = eval(&mut context, elem).unwrap();
+                println!("Result {:?}", result);
+            }
+        }
+        src.clear();
     }
 }
