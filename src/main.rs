@@ -6,10 +6,12 @@ use std::rc::Rc;
 use std::{collections::HashMap, io::Read};
 use uuid::Uuid;
 
+type FunctionType = dyn Fn(&mut Context, LinkedList<Value>) -> Result<Value, String>;
+
 #[derive(Clone)]
 struct Function {
     name: String,
-    fun: Rc<dyn Fn(&mut Context, LinkedList<Value>) -> Result<Value, String>>,
+    fun: Rc<FunctionType>,
 }
 
 impl std::fmt::Debug for Function {
@@ -136,20 +138,122 @@ fn is_symbol(token: &str) -> bool {
     }
 }
 
-#[derive(Default, Clone, Debug)]
-struct Context {
-    bindings: Rc<HashMap<String, Value>>,
-    local: HashMap<String, Value>,
+struct OpsEnv;
+
+impl OpsEnv {
+    fn add(ctx: &mut Context, args: LinkedList<Value>) -> Result<Value, String> {
+        let mut result: i64 = 0;
+        for arg in args {
+            match eval(ctx, arg)? {
+                Value::Integer(value) => {
+                    result += value;
+                }
+                other => {
+                    return Err(format!("Calling function '+' with arg: {:?}", other));
+                }
+            }
+        }
+        Ok(Value::Integer(result))
+    }
+    fn eq(ctx: &mut Context, mut args: LinkedList<Value>) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("Function '=' called without arguments".to_string());
+        }
+        let value = eval(ctx, args.pop_front().unwrap())?;
+        for other in args {
+            if value != eval(ctx, other)? {
+                return Ok(Value::Bool(false));
+            }
+        }
+        Ok(Value::Bool(true))
+    }
+
+    fn bind(ctx: &mut Context) {
+        ctx.bind_fn("+", &OpsEnv::add);
+        ctx.bind_fn("=", &OpsEnv::eq);
+    }
 }
 
-impl Context {
-    fn resolve(&self, key: &str) -> Option<Value> {
-        if let Some(local_value) = self.local.get(key) {
-            Some(local_value.clone())
-        } else if let Some(global_value) = self.bindings.get(key) {
-            Some(global_value.clone())
+struct CoreEnv;
+
+impl CoreEnv {
+    fn def(ctx: &mut Context, mut args: LinkedList<Value>) -> Result<Value, String> {
+        if args.len() != 2 {
+            return Err(format!("Invalid arguments for def: {:?}", args));
+        }
+        match args.pop_front().unwrap() {
+            Value::Symbol(name) => {
+                let value = eval(ctx, args.pop_front().unwrap())?;
+                Rc::get_mut(&mut ctx.bindings)
+                    .unwrap()
+                    .insert(name.clone(), value);
+                Ok(Value::Nil)
+            }
+            other => Err(format!(
+                "'def' first argument must by symbol, got: {:?}",
+                other
+            )),
+        }
+    }
+    fn if_fn(ctx: &mut Context, mut args: LinkedList<Value>) -> Result<Value, String> {
+        if let (Some(condition), Some(true_branch), false_branch, None) = (
+            args.pop_front(),
+            args.pop_front(),
+            args.pop_front(),
+            args.pop_front(),
+        ) {
+            match eval(ctx, condition)? {
+                Value::Bool(false) | Value::Nil => {
+                    false_branch.map_or(Ok(Value::Nil), |node| eval(ctx, node))
+                }
+                _ => eval(ctx, true_branch),
+            }
         } else {
-            None
+            return Err("Function 'if' requires 2 or 3 arguments".to_string());
+        }
+    }
+    fn lambda_fn(ctx: &mut Context, mut args: LinkedList<Value>) -> Result<Value, String> {
+        if let (Some(Value::List(arg_bindings)), Some(body), None) =
+            (args.pop_front(), args.pop_front(), args.pop_front())
+        {
+            let mut bindings: Vec<String> = Vec::new();
+            for arg_binding in arg_bindings {
+                if let Value::Symbol(name) = arg_binding {
+                    bindings.push(name.clone());
+                } else {
+                    return Err(format!(
+                        "Function arguments must be symbols, got {:?}.",
+                        arg_binding
+                    ));
+                }
+            }
+            let local_copy = ctx.local.clone();
+            let f =
+                move |global_ctx: &mut Context, args: LinkedList<Value>| -> Result<Value, String> {
+                    if bindings.len() != args.len() {
+                        return Err(format!(
+                            "Wrong number of arguments, expected {}, got {}",
+                            bindings.len(),
+                            args.len()
+                        ));
+                    }
+                    let mut local_ctx = Context {
+                        bindings: global_ctx.bindings.clone(),
+                        local: local_copy.clone(),
+                    };
+                    for (name, bound_node) in bindings.iter().zip(args) {
+                        let bound_value = eval(global_ctx, bound_node)?;
+                        local_ctx.local.insert(name.clone(), bound_value);
+                    }
+                    let result = eval(&mut local_ctx, body.clone())?;
+                    Ok(result)
+                };
+            Ok(Value::Function(Function {
+                name: Uuid::new_v4().to_string(),
+                fun: Rc::new(f),
+            }))
+        } else {
+            Err("'fn' has form (fn (arg1 arg2 ...) body)".to_string())
         }
     }
     fn import(ctx: &mut Context, args: LinkedList<Value>) -> Result<Value, String> {
@@ -174,245 +278,129 @@ impl Context {
             ))
         }
     }
-    fn new() -> Context {
-        let mut bindings: HashMap<String, Value> = HashMap::new();
-        bindings.insert("nil".to_string(), Value::Nil);
-        bindings.insert("true".to_string(), Value::Bool(true));
-        bindings.insert("false".to_string(), Value::Bool(false));
-        bindings.insert(
-            "=".to_string(),
-            Value::Function(Function {
-                name: "=".to_string(),
-                fun: Rc::new(|ctx, mut args| {
-                    if args.is_empty() {
-                        return Err("Function '=' called without arguments".to_string());
-                    }
-                    let value = eval(ctx, args.pop_front().unwrap())?;
-                    for other in args {
-                        if value != eval(ctx, other)? {
-                            return Ok(Value::Bool(false));
-                        }
-                    }
-                    Ok(Value::Bool(true))
-                }),
-            }),
-        );
-        bindings.insert(
-            "+".to_string(),
-            Value::Function(Function {
-                name: "+".to_string(),
-                fun: Rc::new(|ctx, args| {
-                    let mut result: i64 = 0;
-                    for arg in args {
-                        match eval(ctx, arg)? {
-                            Value::Integer(value) => {
-                                result += value;
-                            }
-                            other => {
-                                return Err(format!("Calling function '+' with arg: {:?}", other));
-                            }
-                        }
-                    }
-                    Ok(Value::Integer(result))
-                }),
-            }),
-        );
-        bindings.insert(
-            "def".to_string(),
-            Value::Function(Function {
-                name: "def".to_string(),
-                fun: Rc::new(|ctx, mut args| {
-                    if args.len() != 2 {
-                        return Err(format!("Invalid arguments for def: {:?}", args));
-                    }
-                    match args.pop_front().unwrap() {
-                        Value::Symbol(name) => {
-                            let value = eval(ctx, args.pop_front().unwrap())?;
-                            Rc::get_mut(&mut ctx.bindings).unwrap().insert(name.clone(), value);
-                            Ok(Value::Nil)
-                        }
-                        other => Err(format!(
-                            "'def' first argument must by symbol, got: {:?}",
-                            other
-                        )),
-                    }
-                }),
-            }),
-        );
-        bindings.insert(
-            "list".to_string(),
-            Value::Function(Function {
-                name: "list".to_string(),
-                fun: Rc::new(|ctx, args| {
-                    let mut list_values: LinkedList<Value> = LinkedList::new();
-                    for arg in args {
-                        list_values.push_back(eval(ctx, arg)?);
-                    }
-                    Ok(Value::List(list_values))
-                }),
-            }),
-        );
-        bindings.insert(
-            "first".to_string(),
-            Value::Function(Function {
-                name: "first".to_string(),
-                fun: Rc::new(|ctx, mut args| {
-                    if args.len() != 1 {
-                        return Err("Function 'first' requires 1 argument".to_string());
-                    }
-                    if let Value::List(mut elements) = eval(ctx, args.pop_front().unwrap())? {
-                        match elements.pop_front() {
-                            Some(elem) => Ok(elem),
-                            None => Err("Function 'first' requires non-empty list".to_string()),
-                        }
-                    } else {
-                        Err("Only list is supported for 'first' function".to_string())
-                    }
-                }),
-            }),
-        );
-        bindings.insert(
-            "rest".to_string(),
-            Value::Function(Function {
-                name: "rest".to_string(),
-                fun: Rc::new(|ctx, mut args| {
-                    if args.len() != 1 {
-                        return Err("Function 'rest' requires 1 argument".to_string());
-                    }
-                    let mut list = eval(ctx, args.pop_front().unwrap())?;
-                    if let Value::List(elements) = &mut list {
-                        if elements.pop_front().is_none() {
-                            return Err(String::from("Function 'rest' requires non-empty list"));
-                        }
-                    }
-                    Ok(list)
-                }),
-            }),
-        );
-        bindings.insert(
-            "cons".to_string(),
-            Value::Function(Function {
-                name: "cons".to_string(),
-                fun: Rc::new(|ctx, mut args| {
-                    if args.len() != 2 {
-                        return Err(String::from("Function 'cons' requires 2 arguments"));
-                    }
-                    let (head, mut tail) = (
-                        eval(ctx, args.pop_front().unwrap())?,
-                        eval(ctx, args.pop_front().unwrap())?,
-                    );
-                    if let Value::List(elements) = &mut tail {
-                        elements.push_front(head);
-                    } else {
-                        return Err(String::from(
-                            "Only list is supported for 'cons' function 2nd argument",
-                        ));
-                    }
-                    Ok(tail)
-                }),
-            }),
-        );
-        bindings.insert(
-            "empty?".to_string(),
-            Value::Function(Function {
-                name: "empty?".to_string(),
-                fun: Rc::new(|ctx, mut args| {
-                    if args.len() != 1 {
-                        return Err("Function 'empty' requires 1 argument".to_string());
-                    }
-                    if let Value::List(elements) = eval(ctx, args.pop_front().unwrap())? {
-                        Ok(Value::Bool(elements.is_empty()))
-                    } else {
-                        Err("Only list is supported for 'empty' function".to_string())
-                    }
-                }),
-            }),
-        );
-        bindings.insert(
-            "if".to_string(),
-            Value::Function(Function {
-                name: "if".to_string(),
-                fun: Rc::new(|ctx, mut args| {
-                    if let (Some(condition), Some(true_branch), false_branch, None) = (
-                        args.pop_front(),
-                        args.pop_front(),
-                        args.pop_front(),
-                        args.pop_front(),
-                    ) {
-                        match eval(ctx, condition)? {
-                            Value::Bool(false) | Value::Nil => {
-                                false_branch.map_or(Ok(Value::Nil), |node| eval(ctx, node))
-                            }
-                            _ => eval(ctx, true_branch),
-                        }
-                    } else {
-                        return Err("Function 'if' requires 2 or 3 arguments".to_string());
-                    }
-                }),
-            }),
-        );
-        bindings.insert(
-            "fn".to_string(),
-            Value::Function(Function {
-                name: "fn".to_string(),
-                fun: Rc::new(|ctx, mut args| {
-                    if let (Some(Value::List(arg_bindings)), Some(body), None) =
-                        (args.pop_front(), args.pop_front(), args.pop_front())
-                    {
-                        let mut bindings: Vec<String> = Vec::new();
-                        for arg_binding in arg_bindings {
-                            if let Value::Symbol(name) = arg_binding {
-                                bindings.push(name.clone());
-                            } else {
-                                return Err(format!(
-                                    "Function arguments must be symbols, got {:?}.",
-                                    arg_binding
-                                ));
-                            }
-                        }
-                        let local_copy = ctx.local.clone();
-                        let f = move |global_ctx: &mut Context,
-                                      args: LinkedList<Value>|
-                              -> Result<Value, String> {
-                            if bindings.len() != args.len() {
-                                return Err(format!(
-                                    "Wrong number of arguments, expected {}, got {}",
-                                    bindings.len(),
-                                    args.len()
-                                ));
-                            }
-                            let mut local_ctx = Context {
-                                bindings: global_ctx.bindings.clone(),
-                                local: local_copy.clone(),
-                            };
-                            for (name, bound_node) in bindings.iter().zip(args) {
-                                let bound_value = eval(global_ctx, bound_node)?;
-                                local_ctx.local.insert(name.clone(), bound_value);
-                            }
-                            let result = eval(&mut local_ctx, body.clone())?;
-                            Ok(result)
-                        };
-                        Ok(Value::Function(Function {
-                            name: Uuid::new_v4().to_string(),
-                            fun: Rc::new(f),
-                        }))
-                    } else {
-                        Err("'fn' has form (fn (arg1 arg2 ...) body)".to_string())
-                    }
-                }),
-            }),
-        );
-        bindings.insert(
-            "import".to_string(),
-            Value::Function(Function {
-                name: "import".to_string(),
-                fun: Rc::new(Context::import),
-            }),
-        );
-        Context {
-            bindings: Rc::new(bindings),
-            ..Default::default()
+
+    fn bind(ctx: &mut Context) {
+        ctx.bind_fn("def", &CoreEnv::def);
+        ctx.bind_fn("if", &CoreEnv::if_fn);
+        ctx.bind_fn("fn", &CoreEnv::lambda_fn);
+        ctx.bind_fn("import", &CoreEnv::import);
+    }
+}
+
+struct ListEnv;
+
+impl ListEnv {
+    fn list(ctx: &mut Context, args: LinkedList<Value>) -> Result<Value, String> {
+        let mut list_values: LinkedList<Value> = LinkedList::new();
+        for arg in args {
+            list_values.push_back(eval(ctx, arg)?);
         }
+        Ok(Value::List(list_values))
+    }
+    fn first(ctx: &mut Context, mut args: LinkedList<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err("Function 'first' requires 1 argument".to_string());
+        }
+        if let Value::List(mut elements) = eval(ctx, args.pop_front().unwrap())? {
+            match elements.pop_front() {
+                Some(elem) => Ok(elem),
+                None => Err("Function 'first' requires non-empty list".to_string()),
+            }
+        } else {
+            Err("Only list is supported for 'first' function".to_string())
+        }
+    }
+    fn rest(ctx: &mut Context, mut args: LinkedList<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err("Function 'rest' requires 1 argument".to_string());
+        }
+        let mut list = eval(ctx, args.pop_front().unwrap())?;
+        if let Value::List(elements) = &mut list {
+            if elements.pop_front().is_none() {
+                return Err(String::from("Function 'rest' requires non-empty list"));
+            }
+        }
+        Ok(list)
+    }
+    fn cons(ctx: &mut Context, mut args: LinkedList<Value>) -> Result<Value, String> {
+        if args.len() != 2 {
+            return Err(String::from("Function 'cons' requires 2 arguments"));
+        }
+        let (head, mut tail) = (
+            eval(ctx, args.pop_front().unwrap())?,
+            eval(ctx, args.pop_front().unwrap())?,
+        );
+        if let Value::List(elements) = &mut tail {
+            elements.push_front(head);
+        } else {
+            return Err(String::from(
+                "Only list is supported for 'cons' function 2nd argument",
+            ));
+        }
+        Ok(tail)
+    }
+    fn empty(ctx: &mut Context, mut args: LinkedList<Value>) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err("Function 'empty' requires 1 argument".to_string());
+        }
+        if let Value::List(elements) = eval(ctx, args.pop_front().unwrap())? {
+            Ok(Value::Bool(elements.is_empty()))
+        } else {
+            Err("Only list is supported for 'empty' function".to_string())
+        }
+    }
+
+    fn bind(ctx: &mut Context) {
+        ctx.bind_fn("list", &ListEnv::list);
+        ctx.bind_fn("first", &ListEnv::first);
+        ctx.bind_fn("rest", &ListEnv::rest);
+        ctx.bind_fn("cons", &ListEnv::cons);
+        ctx.bind_fn("empty?", &ListEnv::empty);
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+struct Context {
+    bindings: Rc<HashMap<String, Value>>,
+    local: HashMap<String, Value>,
+}
+
+impl Context {
+    fn resolve(&self, key: &str) -> Option<Value> {
+        if let Some(local_value) = self.local.get(key) {
+            Some(local_value.clone())
+        } else if let Some(global_value) = self.bindings.get(key) {
+            Some(global_value.clone())
+        } else {
+            None
+        }
+    }
+    fn bind_value(&mut self, name: &str, value: Value) {
+        Rc::get_mut(&mut self.bindings)
+            .unwrap()
+            .insert(String::from(name), value);
+    }
+    fn bind_fn(&mut self, name: &str, fun: &'static FunctionType) {
+        self.bind_value(
+            name,
+            Value::Function(Function {
+                name: String::from(name),
+                fun: Rc::new(fun),
+            }),
+        );
+    }
+    fn new() -> Context {
+        let mut ctx = Context {
+            bindings: Rc::new(HashMap::new()),
+            local: HashMap::new(),
+        };
+        ctx.bind_value("nil", Value::Nil);
+        ctx.bind_value("true", Value::Bool(true));
+        ctx.bind_value("false", Value::Bool(false));
+        OpsEnv::bind(&mut ctx);
+        CoreEnv::bind(&mut ctx);
+        ListEnv::bind(&mut ctx);
+        ctx
     }
 }
 
