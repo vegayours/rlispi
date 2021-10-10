@@ -223,12 +223,18 @@ impl ListEnv {
         if args.len() != 1 {
             return Err("Function 'rest' requires 1 argument".to_string());
         }
-        let list = eval(ctx, args.pop_front().unwrap())?;
-        match &list {
-            Value::List(elements) => Ok(Value::List(elements.rest().unwrap_or(List::new()))),
-            Value::Nil => Ok(Value::List(List::new())),
-            _ => Err(String::from("Function 'rest' requires list argument")),
-        }
+        let mut list = eval(ctx, args.pop_front().unwrap())?;
+        list = match &mut list {
+            Value::List(elements) => {
+                elements.pop_front();
+                list
+            }
+            Value::Nil => Value::List(List::new()),
+            _ => {
+                return Err(String::from("Function 'rest' requires list argument"));
+            }
+        };
+        Ok(list)
     }
     fn cons(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.len() != 2 {
