@@ -1,5 +1,5 @@
 use crate::value::Value;
-use std::collections::LinkedList;
+use std::collections::VecDeque;
 
 fn is_symbol(token: &str) -> bool {
     match token {
@@ -15,13 +15,13 @@ fn is_symbol(token: &str) -> bool {
 }
 
 pub struct Parser {
-    state: LinkedList<Value>,
+    state: VecDeque<Value>,
 }
 
 impl Parser {
     pub fn new() -> Parser {
         Parser {
-            state: LinkedList::new(),
+            state: VecDeque::new(),
         }
     }
     pub fn parse_next(&mut self, src: &str) -> Result<Vec<Value>, String> {
@@ -29,7 +29,7 @@ impl Parser {
 
         let mut src = src;
 
-        let mut add_value = |value: Value, state: &mut LinkedList<Value>| match state.back_mut() {
+        let mut add_value = |value: Value, state: &mut VecDeque<Value>| match state.back_mut() {
             Some(Value::List(elements)) => {
                 elements.push_back(value);
             }
@@ -49,7 +49,7 @@ impl Parser {
                 let end_pos = src.find('\n').unwrap_or(src.len());
                 src = &src[end_pos..];
             } else if src.starts_with('(') {
-                self.state.push_back(Value::List(LinkedList::new()));
+                self.state.push_back(Value::List(VecDeque::new()));
                 src = &src[1..];
             } else if src.starts_with(')') {
                 match self.state.pop_back() {

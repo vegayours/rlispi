@@ -1,10 +1,10 @@
-use std::collections::LinkedList;
+use std::collections::VecDeque;
 use std::ops::Fn;
 use std::rc::Rc;
 
 use crate::eval::Context;
 
-pub type FunctionType = dyn Fn(&mut Context, LinkedList<Value>) -> Result<Value, String>;
+pub type FunctionType = dyn Fn(&mut Context, VecDeque<Value>) -> Result<Value, String>;
 
 #[derive(Clone)]
 pub struct Function {
@@ -29,7 +29,7 @@ pub enum Value {
     Bool(bool),
     Nil,
     Integer(i64),
-    List(LinkedList<Value>),
+    List(VecDeque<Value>),
     Function(Function),
     Symbol(String),
     String(String),

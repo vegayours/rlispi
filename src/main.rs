@@ -64,6 +64,6 @@ fn main() {
     if args.len() <= 1 {
         interactive();
     } else {
-        eval_file(args.first().unwrap());
+        eval_file(args.iter().skip(1).next().unwrap());
     }
 }
