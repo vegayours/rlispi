@@ -1,5 +1,4 @@
 use crate::value::Value;
-use std::collections::VecDeque;
 
 fn is_symbol(token: &str) -> bool {
     match token {
@@ -15,13 +14,13 @@ fn is_symbol(token: &str) -> bool {
 }
 
 pub struct Parser {
-    state: VecDeque<Value>,
+    state: Vec<Vec<Value>>,
 }
 
 impl Parser {
     pub fn new() -> Parser {
         Parser {
-            state: VecDeque::new(),
+            state: Vec::new(),
         }
     }
     pub fn parse_next(&mut self, src: &str) -> Result<Vec<Value>, String> {
@@ -29,14 +28,13 @@ impl Parser {
 
         let mut src = src;
 
-        let mut add_value = |value: Value, state: &mut VecDeque<Value>| match state.back_mut() {
-            Some(Value::List(elements)) => {
-                elements.push_back(value);
+        let mut add_value = |value: Value, state: &mut Vec<Vec<Value>>| match state.last_mut() {
+            Some(elements) => {
+                elements.push(value);
             }
             None => {
                 result.push(value);
             }
-            Some(_) => unreachable!(),
         };
 
         loop {
@@ -49,12 +47,13 @@ impl Parser {
                 let end_pos = src.find('\n').unwrap_or(src.len());
                 src = &src[end_pos..];
             } else if src.starts_with('(') {
-                self.state.push_back(Value::List(VecDeque::new()));
+                self.state.push(Vec::new());
                 src = &src[1..];
             } else if src.starts_with(')') {
-                match self.state.pop_back() {
-                    Some(list_value @ Value::List(..)) => {
-                        add_value(list_value, &mut self.state);
+                match self.state.pop() {
+                    Some(values_vec) => {
+                        let value = Value::List(values_vec.into_iter().collect());
+                        add_value(value, &mut self.state);
                         src = &src[1..];
                     }
                     _ => {

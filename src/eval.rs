@@ -1,8 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::rc::Rc;
 use uuid::Uuid;
+use im_lists::list::List;
 
 use crate::parser::Parser;
 use crate::value::{Function, FunctionType, Value};
@@ -16,7 +17,7 @@ pub struct Context {
 struct OpsEnv;
 
 impl OpsEnv {
-    fn add(ctx: &mut Context, args: VecDeque<Value>) -> Result<Value, String> {
+    fn add(ctx: &mut Context, args: List<Value>) -> Result<Value, String> {
         let mut result: i64 = 0;
         for arg in args {
             match eval(ctx, arg)? {
@@ -30,7 +31,7 @@ impl OpsEnv {
         }
         Ok(Value::Integer(result))
     }
-    fn eq(ctx: &mut Context, mut args: VecDeque<Value>) -> Result<Value, String> {
+    fn eq(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("Function '=' called without arguments".to_string());
         }
@@ -52,7 +53,7 @@ impl OpsEnv {
 struct CoreEnv;
 
 impl CoreEnv {
-    fn def(ctx: &mut Context, mut args: VecDeque<Value>) -> Result<Value, String> {
+    fn def(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.len() != 2 {
             return Err(format!("Invalid arguments for def: {:?}", args));
         }
@@ -70,7 +71,7 @@ impl CoreEnv {
             )),
         }
     }
-    fn if_fn(ctx: &mut Context, mut args: VecDeque<Value>) -> Result<Value, String> {
+    fn if_fn(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if let (Some(condition), Some(true_branch), false_branch, None) = (
             args.pop_front(),
             args.pop_front(),
@@ -87,7 +88,7 @@ impl CoreEnv {
             return Err("Function 'if' requires 2 or 3 arguments".to_string());
         }
     }
-    fn lambda_fn(ctx: &mut Context, mut args: VecDeque<Value>) -> Result<Value, String> {
+    fn lambda_fn(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if let (Some(Value::List(arg_bindings)), Some(body), None) =
             (args.pop_front(), args.pop_front(), args.pop_front())
         {
@@ -104,7 +105,7 @@ impl CoreEnv {
             }
             let local_copy = ctx.local.clone();
             let f = move |global_ctx: &mut Context,
-                          args: VecDeque<Value>|
+                          args: List<Value>|
                   -> Result<Value, String> {
                 if bindings.len() != args.len() {
                     return Err(format!(
@@ -128,7 +129,7 @@ impl CoreEnv {
                 let result = loop {
                     let result = eval(&mut local_ctx, body.clone())?;
                     match result {
-                        Value::List(mut elements) => match elements.front() {
+                        Value::List(mut elements) => match elements.first() {
                             Some(Value::Symbol(name)) if name == "recur" => {
                                 elements.pop_front();
                                 if elements.len() != bindings.len() {
@@ -165,11 +166,11 @@ impl CoreEnv {
             Err("'fn' has form (fn (arg1 arg2 ...) body)".to_string())
         }
     }
-    fn import(ctx: &mut Context, args: VecDeque<Value>) -> Result<Value, String> {
+    fn import(ctx: &mut Context, args: List<Value>) -> Result<Value, String> {
         if args.len() != 1 {
             return Err(format!("Import form expects 1 path argument"));
         }
-        if let Some(Value::String(path)) = args.front() {
+        if let Some(Value::String(path)) = args.first() {
             let mut src = String::new();
             let _size = File::open(path)
                 .map(|mut f| f.read_to_string(&mut src))
@@ -184,7 +185,7 @@ impl CoreEnv {
         } else {
             Err(format!(
                 "Expected string as argument to 'import', got: {:?}",
-                args.front()
+                args.first()
             ))
         }
     }
@@ -200,14 +201,14 @@ impl CoreEnv {
 struct ListEnv;
 
 impl ListEnv {
-    fn list(ctx: &mut Context, args: VecDeque<Value>) -> Result<Value, String> {
-        let mut list_values: VecDeque<Value> = VecDeque::new();
+    fn list(ctx: &mut Context, args: List<Value>) -> Result<Value, String> {
+        let mut list_values: List<Value> = List::new();
         for arg in args {
             list_values.push_back(eval(ctx, arg)?);
         }
         Ok(Value::List(list_values))
     }
-    fn first(ctx: &mut Context, mut args: VecDeque<Value>) -> Result<Value, String> {
+    fn first(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.len() != 1 {
             return Err("Function 'first' requires 1 argument".to_string());
         }
@@ -220,7 +221,7 @@ impl ListEnv {
             Err("Only list is supported for 'first' function".to_string())
         }
     }
-    fn rest(ctx: &mut Context, mut args: VecDeque<Value>) -> Result<Value, String> {
+    fn rest(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.len() != 1 {
             return Err("Function 'rest' requires 1 argument".to_string());
         }
@@ -232,7 +233,7 @@ impl ListEnv {
         }
         Ok(list)
     }
-    fn cons(ctx: &mut Context, mut args: VecDeque<Value>) -> Result<Value, String> {
+    fn cons(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.len() != 2 {
             return Err(String::from("Function 'cons' requires 2 arguments"));
         }
@@ -249,7 +250,7 @@ impl ListEnv {
         }
         Ok(tail)
     }
-    fn empty(ctx: &mut Context, mut args: VecDeque<Value>) -> Result<Value, String> {
+    fn empty(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.len() != 1 {
             return Err("Function 'empty' requires 1 argument".to_string());
         }
@@ -318,7 +319,7 @@ pub fn eval(ctx: &mut Context, value: Value) -> Result<Value, String> {
             }
         }
         Value::List(mut elements) => {
-            match elements.front() {
+            match elements.first() {
                 Some(Value::Symbol(name)) if name == "recur" => {
                     return Ok(Value::List(elements));
                 }

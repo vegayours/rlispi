@@ -7,3 +7,4 @@ edition = "2018"
 
 [dependencies]
 uuid = { version = "0.8", features = ["v4"] }
+im-lists = "0.1.0"
