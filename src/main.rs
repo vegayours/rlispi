@@ -4,6 +4,7 @@ use std::io::Write;
 use std::ops::Fn;
 use std::rc::Rc;
 use std::{collections::HashMap, io::Read};
+use uuid::Uuid;
 
 #[derive(Clone)]
 struct Function {
@@ -137,13 +138,8 @@ fn is_symbol(token: &str) -> bool {
 
 #[derive(Default, Clone, Debug)]
 struct Context {
-    bindings: HashMap<String, Value>,
+    bindings: Rc<HashMap<String, Value>>,
     local: HashMap<String, Value>,
-}
-
-#[derive(Default)]
-struct ContextChange {
-    bindings: HashMap<String, Option<Value>>,
 }
 
 impl Context {
@@ -180,16 +176,16 @@ impl Context {
     }
     fn new() -> Context {
         let mut bindings: HashMap<String, Value> = HashMap::new();
-        bindings.insert("nil".into(), Value::Nil);
-        bindings.insert("true".into(), Value::Bool(true));
-        bindings.insert("false".into(), Value::Bool(false));
+        bindings.insert("nil".to_string(), Value::Nil);
+        bindings.insert("true".to_string(), Value::Bool(true));
+        bindings.insert("false".to_string(), Value::Bool(false));
         bindings.insert(
-            "=".into(),
+            "=".to_string(),
             Value::Function(Function {
-                name: "=".into(),
+                name: "=".to_string(),
                 fun: Rc::new(|ctx, mut args| {
                     if args.is_empty() {
-                        return Err("Function '=' called without arguments".into());
+                        return Err("Function '=' called without arguments".to_string());
                     }
                     let value = eval(ctx, args.pop_front().unwrap())?;
                     for other in args {
@@ -202,9 +198,9 @@ impl Context {
             }),
         );
         bindings.insert(
-            "+".into(),
+            "+".to_string(),
             Value::Function(Function {
-                name: "+".into(),
+                name: "+".to_string(),
                 fun: Rc::new(|ctx, args| {
                     let mut result: i64 = 0;
                     for arg in args {
@@ -222,9 +218,9 @@ impl Context {
             }),
         );
         bindings.insert(
-            "def".into(),
+            "def".to_string(),
             Value::Function(Function {
-                name: "def".into(),
+                name: "def".to_string(),
                 fun: Rc::new(|ctx, mut args| {
                     if args.len() != 2 {
                         return Err(format!("Invalid arguments for def: {:?}", args));
@@ -232,7 +228,7 @@ impl Context {
                     match args.pop_front().unwrap() {
                         Value::Symbol(name) => {
                             let value = eval(ctx, args.pop_front().unwrap())?;
-                            ctx.bindings.insert(name.clone(), value);
+                            Rc::get_mut(&mut ctx.bindings).unwrap().insert(name.clone(), value);
                             Ok(Value::Nil)
                         }
                         other => Err(format!(
@@ -244,9 +240,9 @@ impl Context {
             }),
         );
         bindings.insert(
-            "list".into(),
+            "list".to_string(),
             Value::Function(Function {
-                name: "list".into(),
+                name: "list".to_string(),
                 fun: Rc::new(|ctx, args| {
                     let mut list_values: LinkedList<Value> = LinkedList::new();
                     for arg in args {
@@ -257,31 +253,31 @@ impl Context {
             }),
         );
         bindings.insert(
-            "first".into(),
+            "first".to_string(),
             Value::Function(Function {
-                name: "first".into(),
+                name: "first".to_string(),
                 fun: Rc::new(|ctx, mut args| {
                     if args.len() != 1 {
-                        return Err("Function 'first' requires 1 argument".into());
+                        return Err("Function 'first' requires 1 argument".to_string());
                     }
                     if let Value::List(mut elements) = eval(ctx, args.pop_front().unwrap())? {
                         match elements.pop_front() {
                             Some(elem) => Ok(elem),
-                            None => Err("Function 'first' requires non-empty list".into()),
+                            None => Err("Function 'first' requires non-empty list".to_string()),
                         }
                     } else {
-                        Err("Only list is supported for 'first' function".into())
+                        Err("Only list is supported for 'first' function".to_string())
                     }
                 }),
             }),
         );
         bindings.insert(
-            "rest".into(),
+            "rest".to_string(),
             Value::Function(Function {
-                name: "rest".into(),
+                name: "rest".to_string(),
                 fun: Rc::new(|ctx, mut args| {
                     if args.len() != 1 {
-                        return Err("Function 'rest' requires 1 argument".into());
+                        return Err("Function 'rest' requires 1 argument".to_string());
                     }
                     let mut list = eval(ctx, args.pop_front().unwrap())?;
                     if let Value::List(elements) = &mut list {
@@ -294,9 +290,9 @@ impl Context {
             }),
         );
         bindings.insert(
-            "cons".into(),
+            "cons".to_string(),
             Value::Function(Function {
-                name: "cons".into(),
+                name: "cons".to_string(),
                 fun: Rc::new(|ctx, mut args| {
                     if args.len() != 2 {
                         return Err(String::from("Function 'cons' requires 2 arguments"));
@@ -317,25 +313,25 @@ impl Context {
             }),
         );
         bindings.insert(
-            "empty?".into(),
+            "empty?".to_string(),
             Value::Function(Function {
-                name: "empty?".into(),
+                name: "empty?".to_string(),
                 fun: Rc::new(|ctx, mut args| {
                     if args.len() != 1 {
-                        return Err("Function 'empty' requires 1 argument".into());
+                        return Err("Function 'empty' requires 1 argument".to_string());
                     }
                     if let Value::List(elements) = eval(ctx, args.pop_front().unwrap())? {
                         Ok(Value::Bool(elements.is_empty()))
                     } else {
-                        Err("Only list is supported for 'empty' function".into())
+                        Err("Only list is supported for 'empty' function".to_string())
                     }
                 }),
             }),
         );
         bindings.insert(
-            "if".into(),
+            "if".to_string(),
             Value::Function(Function {
-                name: "if".into(),
+                name: "if".to_string(),
                 fun: Rc::new(|ctx, mut args| {
                     if let (Some(condition), Some(true_branch), false_branch, None) = (
                         args.pop_front(),
@@ -350,15 +346,15 @@ impl Context {
                             _ => eval(ctx, true_branch),
                         }
                     } else {
-                        return Err("Function 'if' requires 2 or 3 arguments".into());
+                        return Err("Function 'if' requires 2 or 3 arguments".to_string());
                     }
                 }),
             }),
         );
         bindings.insert(
-            "fn".into(),
+            "fn".to_string(),
             Value::Function(Function {
-                name: "fn".into(),
+                name: "fn".to_string(),
                 fun: Rc::new(|ctx, mut args| {
                     if let (Some(Value::List(arg_bindings)), Some(body), None) =
                         (args.pop_front(), args.pop_front(), args.pop_front())
@@ -374,7 +370,7 @@ impl Context {
                                 ));
                             }
                         }
-                        let local_context = ctx.local.clone();
+                        let local_copy = ctx.local.clone();
                         let f = move |global_ctx: &mut Context,
                                       args: LinkedList<Value>|
                               -> Result<Value, String> {
@@ -385,67 +381,45 @@ impl Context {
                                     args.len()
                                 ));
                             }
-                            let mut inner_ctx = Context {
+                            let mut local_ctx = Context {
                                 bindings: global_ctx.bindings.clone(),
-                                local: local_context.clone(),
+                                local: local_copy.clone(),
                             };
                             for (name, bound_node) in bindings.iter().zip(args) {
-                                let bound_value = eval(&mut inner_ctx, bound_node)?;
-                                inner_ctx.local.insert(name.clone(), bound_value);
+                                let bound_value = eval(global_ctx, bound_node)?;
+                                local_ctx.local.insert(name.clone(), bound_value);
                             }
-                            let result = eval(&mut inner_ctx, body.clone())?;
+                            let result = eval(&mut local_ctx, body.clone())?;
                             Ok(result)
                         };
                         Ok(Value::Function(Function {
-                            name: "anonymous".into(),
+                            name: Uuid::new_v4().to_string(),
                             fun: Rc::new(f),
                         }))
                     } else {
-                        Err("'fn' has form (fn (arg1 arg2 ...) body)".into())
+                        Err("'fn' has form (fn (arg1 arg2 ...) body)".to_string())
                     }
                 }),
             }),
         );
         bindings.insert(
-            "import".into(),
+            "import".to_string(),
             Value::Function(Function {
-                name: "import".into(),
+                name: "import".to_string(),
                 fun: Rc::new(Context::import),
             }),
         );
         Context {
-            bindings,
+            bindings: Rc::new(bindings),
             ..Default::default()
         }
-    }
-    fn apply_context_change(&mut self, context_change: ContextChange) -> ContextChange {
-        let mut restore_context_change = ContextChange {
-            bindings: HashMap::new(),
-        };
-        for (k, v) in context_change.bindings {
-            if let Some(new_value) = v {
-                if let Some(prev_value) = self.local.remove(&k) {
-                    restore_context_change
-                        .bindings
-                        .insert(k.clone(), Some(prev_value));
-                } else {
-                    restore_context_change.bindings.insert(k.clone(), None);
-                }
-                self.local.insert(k, new_value);
-            } else {
-                self.local.remove(&k);
-            }
-        }
-        restore_context_change
     }
 }
 
 fn eval(ctx: &mut Context, value: Value) -> Result<Value, String> {
-    //println!("Eval value: {:?}. Local ctx: {:?}", value, ctx.local);
     match value {
         Value::Symbol(name) => {
             if let Some(val) = ctx.resolve(&name) {
-                //println!("{} -> {:?}", name, val);
                 Ok(val)
             } else {
                 Err(format!("Can't resolve symbol '{}'", name))
@@ -471,16 +445,16 @@ fn main() {
 
     let mut src = String::new();
     loop {
-        //print!("(lispi)=> ");
+        print!("(lispi)=> ");
         std::io::stdout().flush().unwrap();
         if std::io::stdin().read_line(&mut src).unwrap() == 0 {
+            println!("");
             parser.finish().unwrap();
             break;
         } else {
             for elem in parser.parse_next(&src).unwrap() {
-                println!("Eval {:?}", elem);
                 let result = eval(&mut context, elem).unwrap();
-                println!("Result {:?}", result);
+                println!("{:?}", result)
             }
         }
         src.clear();
