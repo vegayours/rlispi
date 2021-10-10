@@ -1,6 +1,6 @@
-use std::io::{Read, Write};
-use std::fs::File;
 use std::env;
+use std::fs::File;
+use std::io::{Read, Write};
 
 mod eval;
 mod parser;
@@ -19,12 +19,26 @@ fn interactive() {
         std::io::stdout().flush().unwrap();
         if std::io::stdin().read_line(&mut src).unwrap() == 0 {
             println!("");
-            parser.finish().unwrap();
+            parser
+                .finish()
+                .expect("Partially parsed state on Parser::finish");
             break;
         } else {
-            for elem in parser.parse_next(&src).unwrap() {
-                let result = eval(&mut context, elem).unwrap();
-                println!("{:?}", result)
+            let elems = match parser.parse_next(&src) {
+                Ok(elems) => elems,
+                Err(err) => {
+                    println!("Parse error: {}", err);
+                    parser = Parser::new();
+                    continue;
+                }
+            };
+            for elem in elems {
+                match eval(&mut context, elem) {
+                    Ok(result) => {
+                        println!("{:?}", result)
+                    }
+                    Err(err) => println!("Evaluation error: {}", err),
+                };
             }
         }
         src.clear();

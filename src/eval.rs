@@ -103,26 +103,60 @@ impl CoreEnv {
                 }
             }
             let local_copy = ctx.local.clone();
-            let f =
-                move |global_ctx: &mut Context, args: LinkedList<Value>| -> Result<Value, String> {
-                    if bindings.len() != args.len() {
-                        return Err(format!(
-                            "Wrong number of arguments, expected {}, got {}",
-                            bindings.len(),
-                            args.len()
-                        ));
-                    }
-                    let mut local_ctx = Context {
-                        bindings: global_ctx.bindings.clone(),
-                        local: local_copy.clone(),
-                    };
-                    for (name, bound_node) in bindings.iter().zip(args) {
-                        let bound_value = eval(global_ctx, bound_node)?;
-                        local_ctx.local.insert(name.clone(), bound_value);
-                    }
-                    let result = eval(&mut local_ctx, body.clone())?;
-                    Ok(result)
+            let f = move |global_ctx: &mut Context,
+                          args: LinkedList<Value>|
+                  -> Result<Value, String> {
+                if bindings.len() != args.len() {
+                    return Err(format!(
+                        "Wrong number of arguments, expected {}, got {}",
+                        bindings.len(),
+                        args.len()
+                    ));
+                }
+                let mut local_ctx = Context {
+                    bindings: global_ctx.bindings.clone(),
+                    local: local_copy.clone(),
                 };
+                for (name, bound_node) in bindings.iter().zip(args) {
+                    let bound_value = eval(global_ctx, bound_node)?;
+                    local_ctx.local.insert(name.clone(), bound_value);
+                }
+
+                // Looping allows us to implement tail call optimisation.
+                // By convention we use 'recur' to indicate recursive tail call.
+                // TODO: Implement error reporting when using 'recur' in non-tail call position.
+                let result = loop {
+                    let result = eval(&mut local_ctx, body.clone())?;
+                    match result {
+                        Value::List(mut elements) => match elements.front() {
+                            Some(Value::Symbol(name)) if name == "recur" => {
+                                elements.pop_front();
+                                if elements.len() != bindings.len() {
+                                    return Err(format!("Wrong number of arguments passed to 'recur'. Expected {}, got {}",
+                                                       bindings.len(), elements.len()));
+                                }
+                                let mut arg_values = Vec::with_capacity(bindings.len());
+                                for value in elements {
+                                    let bound_value = eval(&mut local_ctx, value)?;
+                                    arg_values.push(bound_value);
+                                }
+                                for (name, bound_value) in
+                                    bindings.iter().zip(arg_values.into_iter())
+                                {
+                                    local_ctx.local.insert(name.clone(), bound_value);
+                                }
+                            }
+                            _ => {
+                                break Value::List(elements);
+                            }
+                        },
+                        _ => {
+                            break result;
+                        }
+                    };
+                };
+                Ok(result)
+            };
             Ok(Value::Function(Function {
                 name: Uuid::new_v4().to_string(),
                 fun: Rc::new(f),
@@ -284,6 +318,12 @@ pub fn eval(ctx: &mut Context, value: Value) -> Result<Value, String> {
             }
         }
         Value::List(mut elements) => {
+            match elements.front() {
+                Some(Value::Symbol(name)) if name == "recur" => {
+                    return Ok(Value::List(elements));
+                }
+                _ => {}
+            };
             if let Some(head) = elements.pop_front() {
                 match eval(ctx, head)? {
                     Value::Function(Function { fun, .. }) => fun(ctx, elements),

@@ -1,33 +1,12 @@
-(def l (list 1 2 3 4 5))
-
-(def inc (fn (x) ; test comment
-             (+ x 1)))
-
-;; One more comment
-(inc 1)
-
+(def inc (fn (x) (+ x 1)))
+(def dec (fn (x) (+ x -1)))
 
 (def foldl
      (fn (fun acc coll)
          (if (empty? coll)
              acc
-           (foldl fun (fun acc (first coll)) (rest coll))
-           )))
-
-(def map/foldl
-     (fn (fun coll)
-         (foldl (fn (acc elem)
-                    (cons (fun elem) acc))
-                (list)
-                coll)
-         ))
-
-(def map
-     (fn (fun coll)
-         (if (empty? coll)
-             coll
-           (cons (fun (first coll)) (map fun (rest coll))))))
-
+             (recur fun (fun acc (first coll)) (rest coll))
+             )))
 
 (def reverse
      (fn (coll)
@@ -35,16 +14,43 @@
                     (cons elem acc))
                 (list)
                 coll)
-      ))
+         ))
 
-(def mapfirst
+(def map/foldl
      (fn (fun coll)
-         (cons (fun (first coll)) (rest coll))))
+         (reverse
+          (foldl (fn (acc elem)
+                     (cons (fun elem) acc))
+                 (list)
+                 coll)
+          )))
 
-(inc 10)
-;(map inc l)
-;(reverse l)
-; (foldl + 0 l)
-;(mapfirst inc l)
-;(map/foldl inc l)
+(def map
+     (fn (fun coll)
+         (if (empty? coll)
+             coll
+           (cons (fun (first coll)) (map fun (rest coll))))))
 
+(def filter
+     (fn (predicate coll)
+         (reverse (foldl
+                   (fn (acc elem)
+                       (if (predicate elem)
+                           (cons elem acc)
+                           acc))
+                   (list)
+                   coll
+                   ))
+         ))
+
+(def sumrange
+     (fn (start end)
+         ((fn (start end sum)
+              (if (= start end)
+                  sum
+                  (recur (inc start) end (+ sum start))
+                  ))
+          start
+          end
+          0)
+         ))
