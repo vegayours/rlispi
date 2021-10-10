@@ -1,9 +1,9 @@
+use im_lists::list::List;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::rc::Rc;
 use uuid::Uuid;
-use im_lists::list::List;
 
 use crate::parser::Parser;
 use crate::value::{Function, FunctionType, Value};
@@ -104,9 +104,7 @@ impl CoreEnv {
                 }
             }
             let local_copy = ctx.local.clone();
-            let f = move |global_ctx: &mut Context,
-                          args: List<Value>|
-                  -> Result<Value, String> {
+            let f = move |global_ctx: &mut Context, args: List<Value>| -> Result<Value, String> {
                 if bindings.len() != args.len() {
                     return Err(format!(
                         "Wrong number of arguments, expected {}, got {}",
@@ -225,30 +223,31 @@ impl ListEnv {
         if args.len() != 1 {
             return Err("Function 'rest' requires 1 argument".to_string());
         }
-        let mut list = eval(ctx, args.pop_front().unwrap())?;
-        if let Value::List(elements) = &mut list {
-            if elements.pop_front().is_none() {
-                return Err(String::from("Function 'rest' requires non-empty list"));
-            }
+        let list = eval(ctx, args.pop_front().unwrap())?;
+        match &list {
+            Value::List(elements) => Ok(Value::List(elements.rest().unwrap_or(List::new()))),
+            Value::Nil => Ok(Value::List(List::new())),
+            _ => Err(String::from("Function 'rest' requires list argument")),
         }
-        Ok(list)
     }
     fn cons(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.len() != 2 {
             return Err(String::from("Function 'cons' requires 2 arguments"));
         }
-        let (head, mut tail) = (
+        let (head, tail) = (
             eval(ctx, args.pop_front().unwrap())?,
             eval(ctx, args.pop_front().unwrap())?,
         );
-        if let Value::List(elements) = &mut tail {
-            elements.push_front(head);
-        } else {
-            return Err(String::from(
-                "Only list is supported for 'cons' function 2nd argument",
-            ));
-        }
-        Ok(tail)
+        let tail = match tail {
+            Value::List(l) => l,
+            Value::Nil => List::new(),
+            _ => {
+                return Err(String::from(
+                    "List or nil is required for 'cons' function 2nd argument",
+                ));
+            }
+        };
+        Ok(Value::List(List::cons(head, tail)))
     }
     fn empty(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.len() != 1 {

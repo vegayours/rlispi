@@ -1,6 +1,6 @@
+use im_lists::list::List;
 use std::ops::Fn;
 use std::rc::Rc;
-use im_lists::list::List;
 
 use crate::eval::Context;
 

@@ -19,9 +19,7 @@ pub struct Parser {
 
 impl Parser {
     pub fn new() -> Parser {
-        Parser {
-            state: Vec::new(),
-        }
+        Parser { state: Vec::new() }
     }
     pub fn parse_next(&mut self, src: &str) -> Result<Vec<Value>, String> {
         let mut result: Vec<Value> = Vec::new();
