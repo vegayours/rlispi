@@ -31,6 +31,65 @@ impl OpsEnv {
         }
         Ok(Value::Integer(result))
     }
+    fn sub(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("Function '-' called without arguments".to_string());
+        }
+        let mut result = match eval(ctx, args.pop_front().unwrap())? {
+            Value::Integer(x) => x,
+            other => {
+                return Err(format!("Calling function '-' with arg: {:?}", other));
+            }
+        };
+        if args.is_empty() {
+            return Ok(Value::Integer(-result));
+        }
+        for arg in args {
+            match eval(ctx, arg)? {
+                Value::Integer(value) => {
+                    result -= value;
+                }
+                other => {
+                    return Err(format!("Calling function '-' with arg: {:?}", other));
+                }
+            }
+        }
+        Ok(Value::Integer(result))
+    }
+    fn mul(ctx: &mut Context, args: List<Value>) -> Result<Value, String> {
+        let mut result: i64 = 1;
+        for arg in args {
+            match eval(ctx, arg)? {
+                Value::Integer(value) => {
+                    result *= value;
+                }
+                other => {
+                    return Err(format!("Calling function '+' with arg: {:?}", other));
+                }
+            }
+        }
+        Ok(Value::Integer(result))
+    }
+    fn and(ctx: &mut Context, args: List<Value>) -> Result<Value, String> {
+        let mut val = Value::Bool(true);
+        for arg in args {
+            val = eval(ctx, arg)?;
+            if !val.is_true() {
+                return Ok(val);
+            }
+        }
+        Ok(val)
+    }
+    fn or(ctx: &mut Context, args: List<Value>) -> Result<Value, String> {
+        let mut val = Value::Nil;
+        for arg in args {
+            val = eval(ctx, arg)?;
+            if val.is_true() {
+                return Ok(val);
+            }
+        }
+        Ok(val)
+    }
     fn eq(ctx: &mut Context, mut args: List<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("Function '=' called without arguments".to_string());
@@ -46,6 +105,10 @@ impl OpsEnv {
 
     fn bind(ctx: &mut Context) {
         ctx.bind_fn("+", &OpsEnv::add);
+        ctx.bind_fn("-", &OpsEnv::sub);
+        ctx.bind_fn("*", &OpsEnv::mul);
+        ctx.bind_fn("and", &OpsEnv::and);
+        ctx.bind_fn("or", &OpsEnv::or);
         ctx.bind_fn("=", &OpsEnv::eq);
     }
 }
@@ -78,11 +141,10 @@ impl CoreEnv {
             args.pop_front(),
             args.pop_front(),
         ) {
-            match eval(ctx, condition)? {
-                Value::Bool(false) | Value::Nil => {
-                    false_branch.map_or(Ok(Value::Nil), |node| eval(ctx, node))
-                }
-                _ => eval(ctx, true_branch),
+            if eval(ctx, condition)?.is_true() {
+                false_branch.map_or(Ok(Value::Nil), |node| eval(ctx, node))
+            } else {
+                eval(ctx, true_branch)
             }
         } else {
             return Err("Function 'if' requires 2 or 3 arguments".to_string());

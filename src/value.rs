@@ -34,3 +34,12 @@ pub enum Value {
     Symbol(String),
     String(String),
 }
+
+impl Value {
+    pub fn is_true(&self) -> bool {
+        match self {
+            Value::Bool(false) | Value::Nil => false,
+            _ => true,
+        }
+    }
+}
