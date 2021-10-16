@@ -1,0 +1,54 @@
+(def foldl
+     (fn (fun acc coll)
+         (if (empty? coll)
+             acc
+             (recur fun (fun acc (first coll)) (rest coll))
+             )))
+
+(def reverse
+     (fn (coll)
+         (foldl (fn (acc elem)
+                    (cons elem acc))
+                (list)
+                coll)))
+
+(def foldr
+     (fn (fun acc coll)
+         (foldl fun acc (reverse coll))))
+
+
+(def map
+     (fn (fun coll)
+         (foldr (fn (acc elem)
+                    (cons (fun elem) acc))
+                (list)
+                coll)))
+
+(def filter
+     (fn (predicate coll)
+         (foldr (fn (acc elem)
+                    (if (predicate elem)
+                        (cons elem acc)
+                        acc))
+                (list)
+                coll)))
+
+(def flatten
+     (fn (lists)
+         (foldr
+          (fn (acc l)
+              (foldr
+               (fn (acc elem)
+                   (cons elem acc))
+               acc
+               l))
+          (list)
+          lists)))
+
+(def len
+     (fn (coll)
+         (foldl
+          (fn (acc elem)
+              (inc acc))
+          0
+          coll)))
